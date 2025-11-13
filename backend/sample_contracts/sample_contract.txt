@@ -1,0 +1,46 @@
+SERVICE AGREEMENT
+
+Contract Number: CNT-2024-001
+Effective Date: January 1, 2024
+Expiration Date: December 31, 2024
+
+PARTIES:
+This Service Agreement ("Agreement") is entered into between:
+Party A: TechCorp Solutions Inc., a corporation organized under the laws of Delaware
+Party B: DataServices LLC, a limited liability company organized under the laws of California
+
+SERVICES:
+Party B agrees to provide cloud computing services and data management solutions to Party A for the duration of this Agreement.
+
+CONTRACT VALUE:
+The total contract value is $500,000.00 USD, payable in quarterly installments of $125,000.00 USD.
+
+TERM AND RENEWAL:
+This Agreement shall commence on January 1, 2024 and shall continue until December 31, 2024, unless earlier terminated in accordance with the provisions herein. This Agreement may be renewed for an additional one-year term upon mutual written agreement of both parties, with renewal discussions to commence no later than November 1, 2024.
+
+OBLIGATIONS:
+1. Party B shall provide 99.9% uptime guarantee for all services.
+2. Party A shall make payments within 30 days of invoice receipt.
+3. Both parties shall maintain appropriate data security measures in compliance with GDPR and SOC 2 standards.
+
+TERMINATION:
+Either party may terminate this Agreement with 90 days written notice. In the event of material breach, the non-breaching party may terminate immediately upon written notice.
+
+PENALTIES:
+In the event of service downtime exceeding 0.1% in any calendar month, Party B shall provide service credits equal to 10% of that month's payment.
+
+RISK FACTORS:
+- Data privacy compliance requirements (GDPR, SOC 2)
+- Financial exposure: $500,000 annual commitment
+- Service dependency risk
+
+GOVERNING LAW:
+This Agreement shall be governed by the laws of the State of California.
+
+IN WITNESS WHEREOF, the parties have executed this Agreement as of the date first written above.
+
+TechCorp Solutions Inc.                    DataServices LLC
+_______________________                    _______________________
+Signature                                  Signature
+
+
