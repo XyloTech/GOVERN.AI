@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     
     # Google Gemini
-    GEMINI_API_KEY: str = "AIzaSyAtnTZDFW3u1zi-LCEG5a0dfz3bHVFC910"
+    GEMINI_API_KEY: str = "AIzaSyBpiuQAS5txu5OaAoHKrCsk_icuwm3ddWE"
     
     # Pinecone (Optional)
     PINECONE_API_KEY: str = ""

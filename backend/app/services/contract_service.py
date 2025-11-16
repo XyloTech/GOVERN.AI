@@ -6,6 +6,7 @@ from fastapi import UploadFile
 from app.models.contract import Contract, ContractClause, ContractRisk
 from app.services.ai_service import AIService
 from app.services.document_service import DocumentService
+from app.services.scoring_service import ScoringService
 import uuid
 from datetime import datetime
 from dateutil import parser
@@ -37,8 +38,21 @@ class ContractService:
             if isinstance(date_str, datetime):
                 return date_str
             try:
-                return parser.parse(str(date_str))
-            except:
+                # Try parsing the date string
+                parsed = parser.parse(str(date_str))
+                return parsed
+            except Exception as e:
+                # If parsing fails, try to extract date from common formats
+                try:
+                    # Handle "January 1, 2024" format
+                    if isinstance(date_str, str):
+                        # Try common date patterns
+                        date_str_clean = date_str.strip()
+                        parsed = parser.parse(date_str_clean, fuzzy=True)
+                        return parsed
+                except:
+                    pass
+                print(f"Failed to parse date: {date_str}, error: {e}")
                 return None
         
         # Normalize contract type to match enum - use metadata if provided, otherwise use AI analysis
@@ -63,8 +77,34 @@ class ContractService:
         tags_from_analysis = analysis.get("tags", [])
         combined_tags = list(set(tags_from_metadata + tags_from_analysis))
         
-        # Apply risk score filters if provided (for validation)
-        risk_score = analysis.get("risk_score", 0.0)
+        # Calculate proper risk score using scoring service
+        ai_risk_score = analysis.get("risk_score")
+        risk_factors = analysis.get("risk_factors", [])
+        risks = analysis.get("risks", [])
+        contract_value = analysis.get("contract_value")
+        expiration_date = analysis.get("expiration_date")
+        
+        # Extract additional risk indicators from text
+        has_penalties = any('penalty' in str(factor).lower() for factor in risk_factors) or \
+                       any('penalty' in str(risk).lower() for risk in risks)
+        has_auto_renewal = any('renewal' in str(factor).lower() or 'auto' in str(factor).lower() 
+                               for factor in risk_factors)
+        
+        # Calculate risk score using proper algorithm
+        risk_score = ScoringService.calculate_risk_score(
+            risk_factors=risk_factors,
+            risks=risks,
+            contract_value=contract_value,
+            expiration_date=expiration_date,
+            has_penalties=has_penalties,
+            has_auto_renewal=has_auto_renewal,
+            ai_risk_score=ai_risk_score
+        )
+        
+        # Validate and ensure score is in valid range
+        risk_score = ScoringService.validate_risk_score(risk_score)
+        
+        # Apply metadata filters if provided (for validation/override)
         if metadata:
             if metadata.get("min_risk_score") is not None and risk_score < metadata.get("min_risk_score"):
                 risk_score = metadata.get("min_risk_score")

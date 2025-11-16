@@ -7,6 +7,7 @@ from typing import List, Optional
 from app.core.database import get_db
 from app.models.compliance import ComplianceFramework, ComplianceRecord, ComplianceAlert
 from app.schemas.compliance import ComplianceFrameworkResponse, ComplianceRecordResponse
+from app.services.scoring_service import ScoringService
 
 router = APIRouter()
 
@@ -74,7 +75,7 @@ def get_compliance_alerts(
 
 @router.get("/dashboard")
 def get_compliance_dashboard(db: Session = Depends(get_db)):
-    """Get compliance dashboard summary"""
+    """Get compliance dashboard summary with calculated scores"""
     total_records = db.query(ComplianceRecord).count()
     compliant = db.query(ComplianceRecord).filter(ComplianceRecord.status == "compliant").count()
     non_compliant = db.query(ComplianceRecord).filter(ComplianceRecord.status == "non_compliant").count()
@@ -82,13 +83,38 @@ def get_compliance_dashboard(db: Session = Depends(get_db)):
     
     active_alerts = db.query(ComplianceAlert).filter(ComplianceAlert.is_resolved == False).count()
     
+    # Calculate average compliance score
+    records = db.query(ComplianceRecord).all()
+    total_score = 0
+    scored_count = 0
+    for record in records:
+        # Calculate or use existing compliance score
+        if record.compliance_score is None:
+            # Calculate score based on status
+            score = ScoringService.calculate_compliance_score(
+                status=record.status,
+                last_assessment_date=str(record.last_assessment_date) if record.last_assessment_date else None
+            )
+            # Update record with calculated score
+            record.compliance_score = score
+            db.commit()
+        else:
+            score = ScoringService.validate_compliance_score(record.compliance_score)
+        
+        total_score += score
+        scored_count += 1
+    
+    avg_compliance_score = (total_score / scored_count) if scored_count > 0 else 0
+    
     return {
         "total_records": total_records,
         "compliant": compliant,
         "non_compliant": non_compliant,
         "at_risk": at_risk,
         "compliance_rate": (compliant / total_records * 100) if total_records > 0 else 0,
+        "average_compliance_score": round(avg_compliance_score, 1),
         "active_alerts": active_alerts
     }
+
 
 

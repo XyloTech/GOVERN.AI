@@ -12,15 +12,38 @@ class CopilotService:
     def __init__(self, db: Session):
         self.db = db
         if settings.GEMINI_API_KEY:
-            genai.configure(api_key=settings.GEMINI_API_KEY)
-            # Use gemini-2.5-flash for fast, high-quality responses
-            self.model = genai.GenerativeModel('gemini-2.5-flash')
+            try:
+                genai.configure(api_key=settings.GEMINI_API_KEY)
+                # Use fastest available Gemini model
+                # Try models in order, starting with ones that typically have higher quotas
+                models_to_try = [
+                    ('gemini-1.5-flash', 'stable and fast'),
+                    ('gemini-2.5-flash', 'newer and fast'),
+                    ('gemini-2.0-flash-exp', 'experimental, fastest'),
+                    ('gemini-pro', 'most capable')
+                ]
+                
+                for model_name, description in models_to_try:
+                    try:
+                        self.model = genai.GenerativeModel(model_name)
+                        print(f"[Copilot] Using model: {model_name} ({description})")
+                        break
+                    except Exception as e:
+                        print(f"[Copilot] {model_name} failed: {str(e)[:100]}")
+                        continue
+                else:
+                    print("[Copilot] All models failed to initialize")
+                    self.model = None
+            except Exception as e:
+                print(f"[Copilot] Failed to configure Gemini: {e}")
+                self.model = None
         else:
+            print("[Copilot] No GEMINI_API_KEY configured")
             self.model = None
     
     async def process_query(self, query: str, context: dict = None) -> dict:
         """Process natural language query using AI Copilot"""
-        # Gather relevant context from database
+        # Gather relevant context from database (optimized - only get what's needed)
         relevant_data = self._gather_context(query, context or {})
         
         if not self.model:
@@ -30,7 +53,7 @@ class CopilotService:
                 "data": relevant_data.get("data", {})
             }
         
-        # Build filter description
+        # Build filter description (only if filters are actually set)
         filters_desc = ""
         if context and context.get("filters"):
             filters = context["filters"]
@@ -54,38 +77,188 @@ class CopilotService:
             if filter_list:
                 filters_desc = f"\n\nActive Filters:\n" + "\n".join(filter_list)
         
-        prompt = f"""
-        You are the GovernAI Copilot, an AI assistant for enterprise governance, compliance, and contract management.
+        # Check if query is a simple greeting or casual conversation
+        query_lower = query.lower().strip()
+        # Remove punctuation for matching
+        query_clean = query_lower.rstrip('.,!?;:').strip()
+        greeting_keywords = ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening', 'how are you', 'what\'s up', 'whats up', 'greetings', 'hey there']
+        # Check if it's exactly a greeting or starts with one (for short queries)
+        is_greeting = (query_clean in greeting_keywords or 
+                      any(query_clean == g or query_clean.startswith(g + ' ') for g in greeting_keywords))
         
-        User Query: {query}
-        {filters_desc}
-        
-        Relevant Context Data:
-        {self._format_context(relevant_data)}
-        
-        Provide a helpful, accurate answer based on the context data. Format your response clearly with:
-        - A direct answer to the query
-        - Key insights from the data
-        - Specific numbers and statistics when available
-        - Use markdown formatting for better readability (use **bold** for important points, `code` for values)
-        
-        If you don't have enough information, say so and suggest what additional data might be needed.
-        """
+        if is_greeting:
+            # For greetings, respond naturally and briefly
+            prompt = f"""User said: {query}
+
+Respond naturally and briefly. If they said "hello", just say "hello" or "hi". Keep it simple and friendly, no analysis needed."""
+        else:
+            # Optimized prompt - shorter and more direct for faster responses
+            context_summary = self._format_context(relevant_data)
+            # Limit context size to avoid slow processing (further reduced)
+            if len(context_summary) > 1500:
+                context_summary = context_summary[:1500] + "... (truncated)"
+            
+            # Shorter, more direct prompt for faster processing
+            prompt = f"""Answer this question directly and concisely:
+
+{query}
+{filters_desc}
+
+Context: {context_summary}
+
+Direct answer only. No headers or boilerplate."""
         
         try:
-            response = self.model.generate_content(prompt)
-            answer = response.text
+            # Direct call in thread pool - simplified for reliability
+            import asyncio
+            import time
             
-            return {
-                "answer": answer,
-                "sources": relevant_data.get("sources", []),
-                "data": relevant_data.get("data", {})
+            print(f"[Copilot] Processing query: {query[:50]}...")
+            
+            # Check if model is initialized
+            if not self.model:
+                print("[Copilot] ERROR: Model not initialized!")
+                return {
+                    "answer": "AI service is not configured. Please contact support.",
+                    "sources": [],
+                    "data": relevant_data.get("data", {})
+                }
+            
+            def call_gemini():
+                """Call Gemini API synchronously - simplified"""
+                start_time = time.time()
+                print(f"[Copilot] Starting Gemini API call...")
+                try:
+                    # Very simple call - let model use defaults for speed
+                    response = self.model.generate_content(prompt)
+                    elapsed = time.time() - start_time
+                    print(f"[Copilot] Gemini API call completed in {elapsed:.2f}s")
+                    return response
+                except Exception as e:
+                    elapsed = time.time() - start_time
+                    print(f"[Copilot] Gemini API call failed after {elapsed:.2f}s: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    raise
+            
+            # Execute in thread pool with timeout
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                # If no running loop, create one
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            
+            api_start = time.time()
+            
+            try:
+                # Use reasonable timeout - API tested at ~1.3s, so 30s should be plenty
+                response = await asyncio.wait_for(
+                    loop.run_in_executor(None, call_gemini),
+                    timeout=30.0  # 30 second timeout (should be enough for normal responses)
+                )
+                api_elapsed = time.time() - api_start
+                print(f"[Copilot] Total API wait time: {api_elapsed:.2f}s")
+            except asyncio.TimeoutError:
+                elapsed = time.time() - api_start
+                print(f"[Copilot] Gemini API timeout after {elapsed:.2f}s")
+                return {
+                    "answer": "I apologize, but the AI service is taking too long to respond. Please try:\n- Simplifying your question\n- Checking your internet connection\n- Trying again in a moment",
+                    "sources": [],
+                    "data": relevant_data.get("data", {})
+                }
+            except Exception as e:
+                elapsed = time.time() - api_start
+                error_msg = str(e)
+                print(f"[Copilot] Error during API call after {elapsed:.2f}s: {error_msg}")
+                import traceback
+                traceback.print_exc()
+                
+                # Check if it's a quota error - if so, return a helpful message instead of raising
+                if "ResourceExhausted" in error_msg or "429" in error_msg or ("quota" in error_msg.lower() and "exceeded" in error_msg.lower()):
+                    # Extract retry time if available
+                    retry_seconds = None
+                    if "retry in" in error_msg.lower() or "retry_delay" in error_msg.lower():
+                        import re
+                        match = re.search(r'retry in ([\d.]+)s', error_msg.lower())
+                        if match:
+                            retry_seconds = int(float(match.group(1)))
+                    
+                    user_error_msg = "I'm having trouble connecting to the AI service right now. "
+                    if retry_seconds:
+                        user_error_msg += f"The AI service quota has been exceeded. Please try again in {retry_seconds} seconds."
+                    else:
+                        user_error_msg += "The AI service quota has been exceeded. Please try again in a minute."
+                    
+                    return {
+                        "answer": user_error_msg,
+                        "sources": relevant_data.get("sources", []) if isinstance(relevant_data.get("sources"), list) else [],
+                        "data": relevant_data.get("data", {}) if isinstance(relevant_data.get("data"), dict) else {}
+                    }
+                
+                # For other errors, raise to be handled by outer exception handler
+                raise
+            
+            # Extract answer from response
+            answer = "I apologize, but I couldn't generate a response. Please try again."
+            if response:
+                if hasattr(response, 'text'):
+                    answer = response.text
+                elif hasattr(response, 'candidates') and response.candidates:
+                    # Handle different response formats
+                    candidate = response.candidates[0]
+                    if hasattr(candidate, 'content'):
+                        if hasattr(candidate.content, 'parts'):
+                            answer = candidate.content.parts[0].text if candidate.content.parts else answer
+                        elif hasattr(candidate.content, 'text'):
+                            answer = candidate.content.text
+            
+            if not answer or len(answer.strip()) == 0:
+                answer = "I apologize, but I couldn't generate a response. Please try again."
+            
+            # Ensure we always return a dict with the expected structure
+            result = {
+                "answer": str(answer).strip(),
+                "sources": relevant_data.get("sources", []) if isinstance(relevant_data.get("sources"), list) else [],
+                "data": relevant_data.get("data", {}) if isinstance(relevant_data.get("data"), dict) else {}
             }
+            
+            print(f"[Copilot] Returning response with answer length: {len(result['answer'])}")
+            return result
         except Exception as e:
+            import traceback
+            error_trace = traceback.format_exc()
+            error_msg = str(e)
+            print(f"[Copilot] Error in process_query: {error_msg}")
+            print(f"[Copilot] Traceback:\n{error_trace}")
+            
+            # Build user-friendly error message
+            user_error_msg = "I'm having trouble connecting to the AI service right now. "
+            if "ResourceExhausted" in error_msg or "429" in error_msg or ("quota" in error_msg.lower() and "exceeded" in error_msg.lower()):
+                # Extract retry time if available
+                retry_seconds = None
+                if "retry in" in error_msg.lower() or "retry_delay" in error_msg.lower():
+                    import re
+                    match = re.search(r'retry in ([\d.]+)s', error_msg.lower())
+                    if match:
+                        retry_seconds = int(float(match.group(1)))
+                
+                if retry_seconds:
+                    user_error_msg += f"The AI service quota has been exceeded. Please try again in {retry_seconds} seconds."
+                else:
+                    user_error_msg += "The AI service quota has been exceeded. Please try again in a minute."
+            elif "API key" in error_msg.lower() or "authentication" in error_msg.lower():
+                user_error_msg += "There's an authentication issue with the AI service."
+            elif "timeout" in error_msg.lower():
+                user_error_msg += "The request timed out. Please try again."
+            else:
+                user_error_msg += "Please try again in a moment."
+            
+            # Return error response (don't raise - let endpoint handle it)
             return {
-                "answer": f"Error processing query: {str(e)}",
-                "sources": [],
-                "data": relevant_data.get("data", {})
+                "answer": user_error_msg,
+                "sources": relevant_data.get("sources", []) if isinstance(relevant_data.get("sources"), list) else [],
+                "data": relevant_data.get("data", {}) if isinstance(relevant_data.get("data"), dict) else {}
             }
     
     def _gather_context(self, query: str, context: dict) -> dict:
@@ -113,7 +286,7 @@ class CopilotService:
             if contract_filters.get("max_contract_value") is not None:
                 query_obj = query_obj.filter(Contract.contract_value <= contract_filters["max_contract_value"])
             
-            contracts = query_obj.limit(20).all()
+            contracts = query_obj.limit(10).all()  # Reduced limit for faster queries
             data["contracts"] = [
                 {
                     "id": c.id, 
@@ -126,7 +299,7 @@ class CopilotService:
                     "party_b": c.party_b
                 } for c in contracts
             ]
-            sources.extend([f"Contract: {c.title}" for c in contracts[:5]])
+            sources.extend([f"Contract: {c.title}" for c in contracts[:3]])  # Reduced sources
         
         # Search compliance records
         compliance_filters = filters.get("compliance", {})
@@ -139,7 +312,7 @@ class CopilotService:
             if compliance_filters.get("status"):
                 query_obj = query_obj.filter(ComplianceRecord.status == compliance_filters["status"])
             
-            records = query_obj.limit(20).all()
+            records = query_obj.limit(10).all()  # Reduced limit for faster queries
             data["compliance"] = [
                 {
                     "id": r.id, 
@@ -148,7 +321,7 @@ class CopilotService:
                     "last_assessment_date": str(r.last_assessment_date) if r.last_assessment_date else None
                 } for r in records
             ]
-            sources.extend([f"Compliance Record: {r.id}" for r in records[:5]])
+            sources.extend([f"Compliance Record: {r.id}" for r in records[:3]])  # Reduced sources
         
         # Search reports
         report_filters = filters.get("reports", {})
@@ -159,7 +332,7 @@ class CopilotService:
             if report_filters.get("report_type"):
                 query_obj = query_obj.filter(Report.report_type == report_filters["report_type"])
             
-            reports = query_obj.limit(20).all()
+            reports = query_obj.limit(10).all()  # Reduced limit for faster queries
             data["reports"] = [
                 {
                     "id": r.id, 
@@ -168,7 +341,7 @@ class CopilotService:
                     "created_at": str(r.created_at) if r.created_at else None
                 } for r in reports
             ]
-            sources.extend([f"Report: {r.title}" for r in reports[:5]])
+            sources.extend([f"Report: {r.title}" for r in reports[:3]])  # Reduced sources
         
         # Dashboard data
         dashboard_filters = filters.get("dashboard", {})

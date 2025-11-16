@@ -5,7 +5,7 @@ from app.core.database import Base, engine
 from app.models import (
     User, Contract, ContractClause, ContractRisk,
     ComplianceFramework, ComplianceRecord, ComplianceAlert,
-    Report, ReportTemplate, KPI
+    Report, ReportTemplate, KPI, ChatMessage
 )
 
 def init_db():
@@ -15,5 +15,6 @@ def init_db():
 
 if __name__ == "__main__":
     init_db()
+
 
 

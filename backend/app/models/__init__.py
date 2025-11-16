@@ -3,6 +3,7 @@ from app.models.user import User
 from app.models.contract import Contract, ContractClause, ContractRisk
 from app.models.compliance import ComplianceFramework, ComplianceRecord, ComplianceAlert
 from app.models.report import Report, ReportTemplate, KPI
+from app.models.chat import ChatMessage
 
 __all__ = [
     "User",
@@ -14,7 +15,9 @@ __all__ = [
     "ComplianceAlert",
     "Report",
     "ReportTemplate",
-    "KPI"
+    "KPI",
+    "ChatMessage"
 ]
+
 
 

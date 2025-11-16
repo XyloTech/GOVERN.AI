@@ -20,13 +20,16 @@ class User(Base):
     __tablename__ = "users"
     
     id = Column(Integer, primary_key=True, index=True)
+    firebase_uid = Column(String, unique=True, index=True, nullable=True)  # For Firebase auth
     email = Column(String, unique=True, index=True, nullable=False)
-    hashed_password = Column(String, nullable=False)
+    hashed_password = Column(String, nullable=True)  # Optional for Firebase users
     full_name = Column(String, nullable=False)
+    photo_url = Column(String, nullable=True)  # Profile picture URL
     role = Column(Enum(UserRole), default=UserRole.EXECUTIVE)
     is_active = Column(Boolean, default=True)
     is_superuser = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
 
 

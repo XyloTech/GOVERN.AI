@@ -8,11 +8,13 @@ import os
 from app.core.config import settings
 from PyPDF2 import PdfReader
 from docx import Document
+from app.services.ai_service import AIService
 
 class DocumentService:
     def __init__(self, db: Session):
         self.db = db
         self.upload_dir = settings.UPLOAD_DIR
+        self.ai_service = AIService()
         os.makedirs(self.upload_dir, exist_ok=True)
     
     async def save_uploaded_file(self, file: UploadFile, content: bytes) -> str:
@@ -54,4 +56,33 @@ class DocumentService:
                 return content.decode('utf-8')
             except:
                 return ""
+    
+    async def analyze_file(self, file: UploadFile) -> dict:
+        """Analyze uploaded file and return comprehensive analysis"""
+        # Read file content
+        file_content = await file.read()
+        
+        # Extract text from document
+        text_content = await self.extract_text_from_content(file_content, file.filename)
+        
+        if not text_content or len(text_content.strip()) == 0:
+            return {
+                "error": "Could not extract text from file. File may be empty or in an unsupported format.",
+                "filename": file.filename,
+                "file_type": file.content_type
+            }
+        
+        # Use AI to analyze the file
+        analysis = await self.ai_service.analyze_file(
+            text_content, 
+            file.filename, 
+            file.content_type
+        )
+        
+        # Save file for reference
+        file_path = await self.save_uploaded_file(file, file_content)
+        analysis["file_path"] = file_path
+        analysis["file_size"] = len(file_content)
+        
+        return analysis
 

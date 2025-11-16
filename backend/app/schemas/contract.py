@@ -45,7 +45,12 @@ class ContractResponse(BaseModel):
     risk_score: float = 0.0
     risk_factors: Optional[List[str]] = None
     tags: Optional[List[str]] = None
+    file_name: Optional[str] = None
+    file_type: Optional[str] = None
+    file_path: Optional[str] = None
+    extracted_clauses: Optional[List[Dict[str, Any]]] = None
     created_at: datetime
+    updated_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True
@@ -57,5 +62,6 @@ class ContractCreate(BaseModel):
     type: Optional[str] = None
     party_a: str
     party_b: str
+
 
 

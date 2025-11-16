@@ -78,3 +78,4 @@ class ComplianceAlert(Base):
     compliance_record = relationship("ComplianceRecord")
 
 
+

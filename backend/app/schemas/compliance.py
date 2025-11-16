@@ -32,3 +32,4 @@ class ComplianceRecordResponse(BaseModel):
         from_attributes = True
 
 
+
