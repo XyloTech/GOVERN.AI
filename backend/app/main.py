@@ -3,13 +3,12 @@ GovernAI - Main FastAPI Application
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from app.core.config import settings
 from app.api.v1.api import api_router
 
 app = FastAPI(
     title="GovernAI API",
-    description="Enterprise AI Reporting, Compliance, and Contract Intelligence Platform",
+    description="Enterprise AI Reporting, Compliance, and Contract Intelligence Platform - Developed by Xylotech",
     version="1.0.0",
     docs_url="/api/docs",
     redoc_url="/api/redoc"
@@ -31,13 +30,13 @@ cors_origins = list(set(cors_origins))
 print(f"[CORS] Allowed origins: {cors_origins}")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for development (change in production)
+    allow_origins=cors_origins,  # Use computed origins (can't use ["*"] with allow_credentials=True)
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
     expose_headers=["*"],
 )
-print(f"[CORS] CORS middleware configured - allowing all origins for development")
+print(f"[CORS] CORS middleware configured with {len(cors_origins)} allowed origins")
 
 # Include API router
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
@@ -48,7 +47,8 @@ async def root():
     return {
         "message": "GovernAI API",
         "version": "1.0.0",
-        "status": "operational"
+        "status": "operational",
+        "developed_by": "Xylotech"
     }
 
 

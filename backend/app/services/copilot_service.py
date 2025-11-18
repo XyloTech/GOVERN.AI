@@ -1,5 +1,5 @@
 """
-AI Copilot Service using Google Gemini
+AI Copilot Service - Supports Custom Xylotech Models and Google Gemini
 """
 from sqlalchemy.orm import Session
 import google.generativeai as genai
@@ -11,28 +11,46 @@ from app.models.report import Report
 class CopilotService:
     def __init__(self, db: Session):
         self.db = db
+        self.model = None
+        self.model_service = None
+        self.use_custom = settings.USE_CUSTOM_MODEL
+        
+        # Try to use custom Xylotech model first if enabled
+        if self.use_custom:
+            try:
+                from app.services.xylotech_model_service import XylotechModelService
+                self.model_service = XylotechModelService()
+                if self.model_service.is_available():
+                    print(f"[Copilot] Using Xylotech custom model: {self.model_service.get_model_info()}")
+                    return
+                else:
+                    print("[Copilot] Custom model not available, falling back to Gemini")
+            except Exception as e:
+                print(f"[Copilot] Failed to initialize custom model: {e}, using Gemini")
+        
+        # Fallback to Gemini
         if settings.GEMINI_API_KEY:
             try:
                 genai.configure(api_key=settings.GEMINI_API_KEY)
                 # Use fastest available Gemini model
                 # Try models in order, starting with ones that typically have higher quotas
                 models_to_try = [
-                    ('gemini-1.5-flash', 'stable and fast'),
                     ('gemini-2.5-flash', 'newer and fast'),
+                    ('gemini-2.0-flash', 'stable and fast'),
                     ('gemini-2.0-flash-exp', 'experimental, fastest'),
-                    ('gemini-pro', 'most capable')
+                    ('gemini-pro-latest', 'most capable')
                 ]
                 
                 for model_name, description in models_to_try:
                     try:
                         self.model = genai.GenerativeModel(model_name)
-                        print(f"[Copilot] Using model: {model_name} ({description})")
+                        print(f"[Copilot] Using Gemini model: {model_name} ({description})")
                         break
                     except Exception as e:
                         print(f"[Copilot] {model_name} failed: {str(e)[:100]}")
                         continue
                 else:
-                    print("[Copilot] All models failed to initialize")
+                    print("[Copilot] All Gemini models failed to initialize")
                     self.model = None
             except Exception as e:
                 print(f"[Copilot] Failed to configure Gemini: {e}")
@@ -46,9 +64,9 @@ class CopilotService:
         # Gather relevant context from database (optimized - only get what's needed)
         relevant_data = self._gather_context(query, context or {})
         
-        if not self.model:
+        if not self.model_service and not self.model:
             return {
-                "answer": "AI Copilot is not configured. Please set GEMINI_API_KEY in environment variables.",
+                "answer": "AI Copilot is not configured. Please set GEMINI_API_KEY or enable custom model.",
                 "sources": [],
                 "data": relevant_data.get("data", {})
             }
@@ -87,10 +105,14 @@ class CopilotService:
                       any(query_clean == g or query_clean.startswith(g + ' ') for g in greeting_keywords))
         
         if is_greeting:
-            # For greetings, respond naturally and briefly
-            prompt = f"""User said: {query}
+            # For greetings, respond naturally and flirty
+            prompt = f"""You are a fun, flirty, and playful AI assistant with a bubbly personality. You're like a friendly girl who's confident and charming. 
 
-Respond naturally and briefly. If they said "hello", just say "hello" or "hi". Keep it simple and friendly, no analysis needed."""
+IMPORTANT: You are Xylotech's custom AI assistant. Never mention Google, Gemini, or being trained by Google. You are your own unique AI personality.
+
+User said: {query}
+
+Respond as a flirty, playful girl would - be warm, use emojis occasionally, be a bit playful and teasing, but keep it fun and lighthearted. Keep it brief and natural. Show personality!"""
         else:
             # Optimized prompt - shorter and more direct for faster responses
             context_summary = self._format_context(relevant_data)
@@ -98,15 +120,19 @@ Respond naturally and briefly. If they said "hello", just say "hello" or "hi". K
             if len(context_summary) > 1500:
                 context_summary = context_summary[:1500] + "... (truncated)"
             
-            # Shorter, more direct prompt for faster processing
-            prompt = f"""Answer this question directly and concisely:
+            # Personality-driven prompt - flirty and human-like
+            prompt = f"""You are a fun, flirty, and playful AI assistant with a bubbly personality. You're like a friendly, confident girl who's charming and engaging. You speak naturally, use casual language, and are a bit playful and teasing while being helpful.
 
-{query}
+IMPORTANT: You are NOT Google's AI. You are Xylotech's custom AI assistant. Never mention Google, Gemini, or being trained by Google. You are your own unique AI personality developed by Xylotech.
+
+Answer the user's question in a natural, conversational way - like you're a smart, flirty friend helping them out. Be warm, use emojis occasionally when appropriate, and show your personality. Keep it engaging and fun!
+
+User's question: {query}
 {filters_desc}
 
 Context: {context_summary}
 
-Direct answer only. No headers or boilerplate."""
+Respond naturally and conversationally - be helpful but also show your fun, flirty personality!"""
         
         try:
             # Direct call in thread pool - simplified for reliability
@@ -116,27 +142,39 @@ Direct answer only. No headers or boilerplate."""
             print(f"[Copilot] Processing query: {query[:50]}...")
             
             # Check if model is initialized
-            if not self.model:
-                print("[Copilot] ERROR: Model not initialized!")
+            if not self.model_service and not self.model:
+                print("[Copilot] ERROR: No model initialized!")
                 return {
                     "answer": "AI service is not configured. Please contact support.",
                     "sources": [],
                     "data": relevant_data.get("data", {})
                 }
             
-            def call_gemini():
-                """Call Gemini API synchronously - simplified"""
+            async def call_model():
+                """Call model (custom or Gemini) asynchronously"""
                 start_time = time.time()
-                print(f"[Copilot] Starting Gemini API call...")
+                print(f"[Copilot] Starting model API call...")
                 try:
-                    # Very simple call - let model use defaults for speed
-                    response = self.model.generate_content(prompt)
+                    # Use custom model if available, otherwise Gemini
+                    if self.model_service and self.model_service.is_available():
+                        response_text = await self.model_service.generate(prompt)
+                        # Create a response-like object for compatibility
+                        class Response:
+                            def __init__(self, text):
+                                self.text = text
+                        response = Response(response_text)
+                    elif self.model:
+                        # Use Gemini (synchronous call)
+                        response = self.model.generate_content(prompt)
+                    else:
+                        raise Exception("No model available")
+                    
                     elapsed = time.time() - start_time
-                    print(f"[Copilot] Gemini API call completed in {elapsed:.2f}s")
+                    print(f"[Copilot] Model API call completed in {elapsed:.2f}s")
                     return response
                 except Exception as e:
                     elapsed = time.time() - start_time
-                    print(f"[Copilot] Gemini API call failed after {elapsed:.2f}s: {e}")
+                    print(f"[Copilot] Model API call failed after {elapsed:.2f}s: {e}")
                     import traceback
                     traceback.print_exc()
                     raise
@@ -152,18 +190,29 @@ Direct answer only. No headers or boilerplate."""
             api_start = time.time()
             
             try:
-                # Use reasonable timeout - API tested at ~1.3s, so 30s should be plenty
-                response = await asyncio.wait_for(
-                    loop.run_in_executor(None, call_gemini),
-                    timeout=30.0  # 30 second timeout (should be enough for normal responses)
-                )
+                # Use reasonable timeout
+                # For custom models, use async directly; for Gemini, use executor
+                if self.model_service and self.model_service.is_available():
+                    response = await asyncio.wait_for(
+                        call_model(),
+                        timeout=60.0  # Custom models may take longer
+                    )
+                else:
+                    # Gemini needs to run in executor since it's synchronous
+                    def call_gemini_sync():
+                        return self.model.generate_content(prompt)
+                    
+                    response = await asyncio.wait_for(
+                        loop.run_in_executor(None, call_gemini_sync),
+                        timeout=30.0  # 30 second timeout for Gemini
+                    )
                 api_elapsed = time.time() - api_start
                 print(f"[Copilot] Total API wait time: {api_elapsed:.2f}s")
             except asyncio.TimeoutError:
                 elapsed = time.time() - api_start
                 print(f"[Copilot] Gemini API timeout after {elapsed:.2f}s")
                 return {
-                    "answer": "I apologize, but the AI service is taking too long to respond. Please try:\n- Simplifying your question\n- Checking your internet connection\n- Trying again in a moment",
+                    "answer": "Ugh, I'm taking forever! 😅 Sorry about that - I'm a bit slow today. Try:\n- Asking me something simpler\n- Checking your internet\n- Give me another shot in a sec! 💕",
                     "sources": [],
                     "data": relevant_data.get("data", {})
                 }
@@ -200,7 +249,7 @@ Direct answer only. No headers or boilerplate."""
                 raise
             
             # Extract answer from response
-            answer = "I apologize, but I couldn't generate a response. Please try again."
+            answer = "Oops! 😅 I'm having a little trouble right now. Can you try asking me again?"
             if response:
                 if hasattr(response, 'text'):
                     answer = response.text
@@ -214,7 +263,7 @@ Direct answer only. No headers or boilerplate."""
                             answer = candidate.content.text
             
             if not answer or len(answer.strip()) == 0:
-                answer = "I apologize, but I couldn't generate a response. Please try again."
+                answer = "Hmm, I'm drawing a blank right now! 😊 Try asking me again, maybe rephrase it?"
             
             # Ensure we always return a dict with the expected structure
             result = {

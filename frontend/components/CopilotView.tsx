@@ -80,6 +80,10 @@ export default function CopilotView() {
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [dragActive, setDragActive] = useState(false)
+  const [speakingMessage, setSpeakingMessage] = useState<number | null>(null)
+  const [copiedMessage, setCopiedMessage] = useState<number | null>(null)
+  const [showMoreMenu, setShowMoreMenu] = useState<number | null>(null)
+  const synthRef = useRef<SpeechSynthesis | null>(null)
 
   // Test backend connection on mount
   useEffect(() => {
@@ -249,6 +253,31 @@ export default function CopilotView() {
   useEffect(() => {
     scrollToBottom()
   }, [messages, loading])
+
+  // Cleanup speech synthesis on unmount
+  useEffect(() => {
+    return () => {
+      if (synthRef.current) {
+        synthRef.current.cancel()
+      }
+    }
+  }, [])
+
+  // Close more menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showMoreMenu !== null) {
+        const target = event.target as HTMLElement
+        if (!target.closest('.message-actions-menu')) {
+          setShowMoreMenu(null)
+        }
+      }
+    }
+    if (showMoreMenu !== null) {
+      document.addEventListener('click', handleClickOutside)
+      return () => document.removeEventListener('click', handleClickOutside)
+    }
+  }, [showMoreMenu])
 
   const applyFiltersAndQuery = async (query: string, retryOnAuth = true): Promise<Message> => {
     // Build context with filters
@@ -1375,16 +1404,17 @@ export default function CopilotView() {
             </p>
           </div>
         ) : (
-          <div className="max-w-4xl mx-auto space-y-6">
+          <div className="max-w-4xl mx-auto space-y-5 px-2">
             {messages.map((message, idx) => (
               <div
                 key={idx}
-                className={`flex gap-4 ${
+                className={`flex gap-3 ${
                   message.role === 'user' ? 'justify-end' : 'justify-start'
-                }`}
+                } ${message.role === 'user' ? 'animate-slide-in-right' : 'animate-slide-in-left'}`}
+                style={{ animationDelay: `${idx * 0.05}s` }}
               >
                 {message.role === 'assistant' && (
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-neon-cyan to-neon-blue flex items-center justify-center mt-1">
+                  <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-neon-cyan via-neon-blue to-neon-purple flex items-center justify-center shadow-lg shadow-neon-cyan/30 animate-float">
                     <svg className="w-5 h-5 text-dark-bg" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                     </svg>
@@ -1392,28 +1422,221 @@ export default function CopilotView() {
                 )}
                 
                 <div className={`flex flex-col ${
-                  message.role === 'user' ? 'items-end max-w-[80%]' : 'items-start max-w-[85%]'
-                } animate-fade-in`}>
-                  <div className={`rounded-2xl px-4 py-3 shadow-lg transition-all duration-300 ${
+                  message.role === 'user' ? 'items-end max-w-[78%] md:max-w-[75%]' : 'items-start max-w-[85%] md:max-w-[80%]'
+                }`}>
+                  <div className={`group relative rounded-3xl px-5 py-4 shadow-xl transition-all duration-300 hover:scale-[1.02] ${
                     message.role === 'user'
-                      ? 'bg-gradient-to-br from-neon-cyan to-neon-blue text-dark-bg rounded-tr-sm hover:shadow-neon-cyan/30'
-                      : 'bg-dark-surface border border-dark-border text-gray-100 rounded-tl-sm hover:border-neon-cyan/50'
+                      ? 'bg-gradient-to-br from-neon-cyan via-neon-blue to-neon-purple text-dark-bg rounded-tr-md hover:shadow-2xl hover:shadow-neon-cyan/40'
+                      : 'glass-effect-strong text-gray-100 rounded-tl-md hover:shadow-2xl hover:border-neon-cyan/60'
                   }`}>
                     {message.file && (
-                      <div className="mb-2 flex items-center gap-2 text-sm opacity-90">
+                      <div className="mb-3 flex items-center gap-2 text-sm opacity-90 bg-black/10 rounded-lg px-2 py-1.5">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
-                        <span>{message.file.name}</span>
+                        <span className="font-medium">{message.file.name}</span>
                         <span className="text-xs opacity-75">({(message.file.size / 1024).toFixed(1)} KB)</span>
                       </div>
                     )}
                     <div 
-                      className="prose prose-invert max-w-none leading-relaxed"
+                      className="prose prose-invert max-w-none leading-relaxed text-[15px]"
+                      style={{ 
+                        lineHeight: '1.7',
+                        wordSpacing: '0.05em'
+                      }}
                       dangerouslySetInnerHTML={{ 
                         __html: formatMessage(message.content) 
                       }}
                     />
+                    
+                    {/* Message Actions Toolbar */}
+                    <div className={`mt-4 pt-3 border-t flex items-center gap-2 flex-wrap opacity-0 group-hover:opacity-100 transition-opacity duration-300 ${
+                      message.role === 'user' ? 'border-white/10' : 'border-dark-border/50'
+                    }`}>
+                      {/* Copy Text Button */}
+                      <button
+                        onClick={() => {
+                          const textContent = message.content.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '')
+                          navigator.clipboard.writeText(textContent)
+                          setCopiedMessage(idx)
+                          setTimeout(() => setCopiedMessage(null), 2000)
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-400 hover:text-neon-cyan hover:bg-neon-cyan/10 rounded-xl transition-all duration-200 border border-transparent hover:border-neon-cyan/30 hover:scale-105 active:scale-95 backdrop-blur-sm"
+                        title="Copy text"
+                      >
+                        {copiedMessage === idx ? (
+                          <>
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                            <span>Copied!</span>
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                            <span>Copy</span>
+                          </>
+                        )}
+                      </button>
+
+                      {/* Speech/Text-to-Speech Button */}
+                      <button
+                        onClick={() => {
+                          if (speakingMessage === idx) {
+                            // Stop speaking
+                            if (synthRef.current) {
+                              synthRef.current.cancel()
+                            }
+                            setSpeakingMessage(null)
+                          } else {
+                            // Start speaking
+                            if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+                              if (synthRef.current) {
+                                synthRef.current.cancel()
+                              }
+                              const textContent = message.content.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '').replace(/\n/g, ' ')
+                              const utterance = new SpeechSynthesisUtterance(textContent)
+                              utterance.rate = 1.0
+                              utterance.pitch = 1.0
+                              utterance.volume = 1.0
+                              utterance.onend = () => setSpeakingMessage(null)
+                              utterance.onerror = () => setSpeakingMessage(null)
+                              synthRef.current = window.speechSynthesis
+                              window.speechSynthesis.speak(utterance)
+                              setSpeakingMessage(idx)
+                            }
+                          }
+                        }}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-xl transition-all duration-200 border backdrop-blur-sm hover:scale-105 active:scale-95 ${
+                          speakingMessage === idx
+                            ? 'text-neon-cyan bg-neon-cyan/20 border-neon-cyan/50 animate-pulse-glow'
+                            : 'text-gray-400 hover:text-neon-blue hover:bg-neon-blue/10 border-transparent hover:border-neon-blue/30'
+                        }`}
+                        title={speakingMessage === idx ? "Stop speaking" : "Read aloud"}
+                      >
+                        {speakingMessage === idx ? (
+                          <>
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+                            </svg>
+                            <span>Stop</span>
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                            </svg>
+                            <span>Speak</span>
+                          </>
+                        )}
+                      </button>
+
+                      {/* Google Search Button */}
+                      <button
+                        onClick={() => {
+                          const searchQuery = encodeURIComponent(message.content.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '').substring(0, 200))
+                          window.open(`https://www.google.com/search?q=${searchQuery}`, '_blank', 'noopener,noreferrer')
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-400 hover:text-neon-green hover:bg-neon-green/10 rounded-xl transition-all duration-200 border border-transparent hover:border-neon-green/30 hover:scale-105 active:scale-95 backdrop-blur-sm"
+                        title="Search on Google"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                        <span>Search</span>
+                      </button>
+
+                      {/* More Options Button */}
+                      <div className="relative message-actions-menu">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setShowMoreMenu(showMoreMenu === idx ? null : idx)
+                          }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-400 hover:text-gray-300 hover:bg-dark-bg/50 rounded-xl transition-all duration-200 border border-transparent hover:border-dark-border hover:scale-105 active:scale-95 backdrop-blur-sm"
+                          title="More options"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                          </svg>
+                        </button>
+                        
+                        {/* More Options Dropdown */}
+                        {showMoreMenu === idx && (
+                          <div 
+                            className="absolute right-0 top-full mt-1 bg-dark-surface border border-dark-border rounded-lg shadow-xl z-50 min-w-[160px] py-1"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              onClick={() => {
+                                const textContent = message.content.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '')
+                                const blob = new Blob([textContent], { type: 'text/plain' })
+                                const url = URL.createObjectURL(blob)
+                                const a = document.createElement('a')
+                                a.href = url
+                                a.download = `message-${idx + 1}.txt`
+                                a.click()
+                                URL.revokeObjectURL(url)
+                                setShowMoreMenu(null)
+                              }}
+                              className="w-full px-3 py-2 text-left text-xs text-gray-300 hover:bg-dark-bg hover:text-neon-cyan transition-colors flex items-center gap-2"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                              </svg>
+                              Download as TXT
+                            </button>
+                            <button
+                              onClick={() => {
+                                const textContent = message.content.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '')
+                                if (navigator.share) {
+                                  navigator.share({
+                                    title: 'AI Response',
+                                    text: textContent
+                                  }).catch(() => {})
+                                }
+                                setShowMoreMenu(null)
+                              }}
+                              className="w-full px-3 py-2 text-left text-xs text-gray-300 hover:bg-dark-bg hover:text-neon-cyan transition-colors flex items-center gap-2"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                              </svg>
+                              Share
+                            </button>
+                            <button
+                              onClick={() => {
+                                const textContent = message.content.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '')
+                                const printWindow = window.open('', '_blank')
+                                if (printWindow) {
+                                  printWindow.document.write(`
+                                    <html>
+                                      <head><title>AI Response</title></head>
+                                      <body style="font-family: Arial, sans-serif; padding: 20px;">
+                                        <pre style="white-space: pre-wrap;">${textContent}</pre>
+                                      </body>
+                                    </html>
+                                  `)
+                                  printWindow.document.close()
+                                  printWindow.print()
+                                }
+                                setShowMoreMenu(null)
+                              }}
+                              className="w-full px-3 py-2 text-left text-xs text-gray-300 hover:bg-dark-bg hover:text-neon-cyan transition-colors flex items-center gap-2"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                              </svg>
+                              Print
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    
                     {message.uploadResult && (
                       <div className="mt-4 p-4 bg-dark-bg/50 rounded-lg border border-dark-border">
                         <h4 className="text-sm font-semibold text-neon-cyan mb-3 flex items-center gap-2">
@@ -1648,16 +1871,25 @@ export default function CopilotView() {
                 </div>
 
                 {message.role === 'user' && (
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center mt-1">
-                    <span className="text-xs font-semibold text-gray-200">U</span>
+                  <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-gray-600 via-gray-500 to-gray-600 flex items-center justify-center shadow-lg shadow-gray-500/20 animate-float">
+                    {user?.photoURL && !profileImageError ? (
+                      <img 
+                        src={user.photoURL} 
+                        alt="User" 
+                        className="w-full h-full rounded-full object-cover"
+                        onError={() => setProfileImageError(true)}
+                      />
+                    ) : (
+                      <span className="text-sm font-bold text-white">{user?.displayName?.[0]?.toUpperCase() || 'U'}</span>
+                    )}
                   </div>
                 )}
               </div>
             ))}
             
             {(loading || uploading) && (
-              <div className="flex gap-4 justify-start animate-fade-in">
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-neon-cyan to-neon-blue flex items-center justify-center mt-1 shadow-lg shadow-neon-cyan/20">
+              <div className="flex gap-3 justify-start animate-slide-in-left px-2">
+                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-neon-cyan via-neon-blue to-neon-purple flex items-center justify-center shadow-xl shadow-neon-cyan/30 animate-pulse-glow">
                   {uploading ? (
                     <svg className="w-5 h-5 text-dark-bg animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
@@ -1671,7 +1903,7 @@ export default function CopilotView() {
                     </div>
                   )}
                 </div>
-                <div className="bg-dark-surface border border-dark-border rounded-2xl rounded-tl-sm px-4 py-3 min-w-[120px] shadow-lg">
+                <div className="glass-effect-strong rounded-3xl rounded-tl-md px-5 py-4 min-w-[140px] shadow-xl">
                   {uploading ? (
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
@@ -1823,7 +2055,7 @@ export default function CopilotView() {
               <p className="text-gray-400 text-sm mt-1">Supports PDF, DOCX, DOC, TXT</p>
             </div>
           )}
-          <div className="relative flex items-end gap-3 bg-dark-surface border border-dark-border rounded-2xl px-4 py-3 shadow-lg transition-all hover:border-neon-cyan/30 focus-within:border-neon-cyan/50">
+          <div className="relative flex items-end gap-3 glass-effect-strong rounded-3xl px-5 py-4 shadow-xl transition-all duration-300 hover:border-neon-cyan/40 hover:shadow-2xl hover:shadow-neon-cyan/20 focus-within:border-neon-cyan/60 focus-within:shadow-2xl focus-within:shadow-neon-cyan/30">
             <input
               ref={fileInputRef}
               type="file"
@@ -1835,7 +2067,7 @@ export default function CopilotView() {
             <div className="flex-shrink-0 flex items-center gap-2">
               <label
                 htmlFor="file-upload-input"
-                className="flex-shrink-0 w-10 h-10 rounded-full bg-dark-bg border border-dark-border hover:border-neon-cyan/50 text-gray-400 hover:text-neon-cyan flex items-center justify-center transition-all cursor-pointer hover:bg-dark-surface"
+                className="flex-shrink-0 w-11 h-11 rounded-full bg-dark-bg/80 backdrop-blur-sm border border-dark-border hover:border-neon-cyan/50 text-gray-400 hover:text-neon-cyan flex items-center justify-center transition-all duration-200 cursor-pointer hover:bg-dark-surface hover:scale-110 active:scale-95 hover:shadow-lg hover:shadow-neon-cyan/20"
                 title="Upload contract"
                 onClick={(e) => {
                   // Default to contract upload (not analyze)
@@ -1852,7 +2084,7 @@ export default function CopilotView() {
                   setAnalyzeMode(true)
                   fileInputRef.current?.click()
                 }}
-                className="flex-shrink-0 w-10 h-10 rounded-full bg-dark-bg border border-dark-border hover:border-neon-blue/50 text-gray-400 hover:text-neon-blue flex items-center justify-center transition-all cursor-pointer hover:bg-dark-surface"
+                className="flex-shrink-0 w-11 h-11 rounded-full bg-dark-bg/80 backdrop-blur-sm border border-dark-border hover:border-neon-blue/50 text-gray-400 hover:text-neon-blue flex items-center justify-center transition-all duration-200 cursor-pointer hover:bg-dark-surface hover:scale-110 active:scale-95 hover:shadow-lg hover:shadow-neon-blue/20"
                 title="Analyze file"
                 disabled={uploading}
               >
@@ -1873,14 +2105,14 @@ export default function CopilotView() {
                 onKeyPress={handleKeyPress}
                 placeholder="Ask about contracts, compliance, reports, or dashboard... (or drag & drop a file)"
                 rows={1}
-                className="w-full bg-transparent text-gray-100 placeholder-gray-500 resize-none focus:outline-none text-sm leading-relaxed max-h-[200px] overflow-y-auto"
+                className="w-full bg-transparent text-gray-100 placeholder-gray-500 resize-none focus:outline-none text-[15px] leading-relaxed max-h-[200px] overflow-y-auto"
                 disabled={loading || uploading}
               />
             </div>
             <button
               onClick={handleSend}
               disabled={!input.trim() || loading || uploading || (queryCount >= 5 && !isPaid)}
-              className="flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-neon-cyan to-neon-blue hover:from-neon-cyan/90 hover:to-neon-blue/90 text-dark-bg flex items-center justify-center transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:from-neon-cyan disabled:hover:to-neon-blue shadow-lg hover:shadow-neon-cyan/30 hover:scale-105 active:scale-95"
+              className="flex-shrink-0 w-11 h-11 rounded-full bg-gradient-to-br from-neon-cyan via-neon-blue to-neon-purple hover:from-neon-cyan/90 hover:via-neon-blue/90 hover:to-neon-purple/90 text-dark-bg flex items-center justify-center transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:from-neon-cyan disabled:hover:via-neon-blue disabled:hover:to-neon-purple shadow-xl hover:shadow-2xl hover:shadow-neon-cyan/40 hover:scale-110 active:scale-95 animate-pulse-glow"
               title={queryCount >= 5 && !isPaid ? "Upgrade required to continue" : "Send message"}
             >
               {loading || uploading ? (

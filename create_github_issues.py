@@ -19,8 +19,23 @@ if not GITHUB_TOKEN:
     exit(1)
 
 # Initialize GitHub
-g = Github(GITHUB_TOKEN)
-repo = g.get_repo(REPO_NAME)
+try:
+    g = Github(GITHUB_TOKEN)
+    repo = g.get_repo(REPO_NAME)
+    # Test access
+    repo.get_issues(state='open', per_page=1)
+    print(f"✅ Successfully connected to repository: {REPO_NAME}")
+except Exception as e:
+    print(f"❌ Error connecting to repository: {e}")
+    print("\n⚠️  Token permissions issue. Please ensure your token has:")
+    print("   - 'repo' scope (full control of private repositories)")
+    print("   - Write access to issues")
+    print("\nTo fix:")
+    print("1. Go to: https://github.com/settings/tokens")
+    print("2. Edit your token or create a new one")
+    print("3. Select scope: 'repo' (includes issues)")
+    print("4. Regenerate and use the new token")
+    exit(1)
 
 # Issues to create
 issues = [

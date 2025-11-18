@@ -22,4 +22,7 @@ redis==5.0.1
 celery==5.3.4
 httpx==0.25.2
 aiofiles==23.2.1
+transformers>=4.30.0
+torch>=2.0.0
+accelerate>=0.20.0
 

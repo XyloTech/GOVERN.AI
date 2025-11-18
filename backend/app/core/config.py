@@ -15,6 +15,13 @@ class Settings(BaseSettings):
     # Google Gemini
     GEMINI_API_KEY: str = "AIzaSyBpiuQAS5txu5OaAoHKrCsk_icuwm3ddWE"
     
+    # Custom Model Configuration (Xylotech)
+    USE_CUSTOM_MODEL: bool = True  # Set to True to use custom model instead of Gemini
+    CUSTOM_MODEL_TYPE: str = "ollama"  # Options: "ollama", "huggingface", "finetuned"
+    CUSTOM_MODEL_NAME: str = "llama3"  # Model name (e.g., "llama3", "mistral", "microsoft/DialoGPT-medium")
+    OLLAMA_BASE_URL: str = "http://localhost:11434"  # Ollama server URL
+    TRAINING_DATA_PATH: str = "./training_data.json"  # Path to fine-tuning data
+    
     # Pinecone (Optional)
     PINECONE_API_KEY: str = ""
     PINECONE_ENVIRONMENT: str = ""

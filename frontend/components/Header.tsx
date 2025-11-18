@@ -10,7 +10,7 @@ export default function Header() {
               Govern<span className="text-neon-blue">AI</span>
             </h1>
             <p className="text-xs text-gray-400 font-normal tracking-wide mt-0.5">
-              Enterprise AI Platform
+              Enterprise AI Platform · Developed by Xylotech
             </p>
           </div>
           <div className="flex items-center space-x-4">

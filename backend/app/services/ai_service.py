@@ -13,7 +13,16 @@ class AIService:
         if settings.GEMINI_API_KEY:
             genai.configure(api_key=settings.GEMINI_API_KEY)
             # Use gemini-2.5-flash for fast, high-quality responses
-            self.model = genai.GenerativeModel('gemini-2.5-flash')
+            try:
+                self.model = genai.GenerativeModel('gemini-2.5-flash')
+            except Exception as e:
+                # Fallback to gemini-2.0-flash if 2.5 is not available
+                print(f"[AIService] gemini-2.5-flash failed, trying gemini-2.0-flash: {e}")
+                try:
+                    self.model = genai.GenerativeModel('gemini-2.0-flash')
+                except Exception as e2:
+                    print(f"[AIService] gemini-2.0-flash also failed: {e2}")
+                    self.model = None
         else:
             self.model = None
     

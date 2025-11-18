@@ -1,6 +1,7 @@
 {
   "name": "governai-frontend",
   "version": "1.0.0",
+  "description": "GovernAI - Enterprise AI Platform developed by Xylotech",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -32,3 +33,5 @@
     "typescript": "^5.3.3"
   }
 }
+
+
